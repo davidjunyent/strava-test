@@ -6,19 +6,14 @@ Test script to validate Strava API integration and Git commit workflow.
 
 Fetches a single Strava activity by ID and commits it to a Git repository with the original activity date preserved.
 
-## Setup
+## Use of Strava Credentials
 
-**1. Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-
-**2. Get Strava API credentials:**
+**1. Get Strava API credentials:**
 - Go to https://www.strava.com/settings/api
 - Create an application and note your Client ID and Client Secret
 - See `OAUTH_SETUP.md` for getting a refresh token
 
-**3. Configure environment:**
+**2. Configure environment:**
 ```bash
 cp .env.example .env
 # Edit .env with your credentials
@@ -45,3 +40,7 @@ Creates commits in `YYYY/MM/DD/activity.md` format with commit messages like:
 ```
 TrailRun on 2024-03-15: 10.50 km
 ```
+
+## License
+
+MIT

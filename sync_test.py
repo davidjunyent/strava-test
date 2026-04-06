@@ -2,14 +2,20 @@
 """
 Strava Test Sync Script
 
-Fetches a single Strava activity by ID and commits it to the strava_activities
-repository with the activity's original date.
+Fetches one or more Strava activities by ID and commits them to the 
+strava_activities repository with each activity's original date.
+
+Usage:
+    python sync_test.py ACTIVITY_ID [ACTIVITY_ID ...]
+    python sync_test.py 12345678
+    python sync_test.py 12345678 87654321 11223344
 """
 
 import os
 import sys
 import logging
-from typing import Dict
+import argparse
+from typing import Dict, List
 from pathlib import Path
 
 import requests
@@ -52,7 +58,6 @@ def load_test_config() -> Dict[str, str]:
         "STRAVA_CLIENT_ID",
         "STRAVA_CLIENT_SECRET",
         "STRAVA_REFRESH_TOKEN",
-        "STRAVA_ACTIVITY_ID",
         "ACTIVITIES_REPO_PATH",
         "GIT_EMAIL",
         "GIT_NAME",
@@ -130,9 +135,39 @@ def get_activity(access_token: str, activity_id: str) -> Dict:
         raise
 
 
+def parse_arguments() -> List[str]:
+    """
+    Parse command-line arguments.
+
+    Returns:
+        List of activity IDs to process
+
+    Raises:
+        SystemExit: If no activity IDs are provided or --help is used
+    """
+    parser = argparse.ArgumentParser(
+        description="Sync Strava activities to Git repository",
+        epilog="Example: python sync_test.py 12345678 87654321",
+    )
+    parser.add_argument(
+        "activity_ids",
+        metavar="ACTIVITY_ID",
+        type=str,
+        nargs="+",
+        help="One or more Strava activity IDs to sync",
+    )
+
+    args = parser.parse_args()
+    return args.activity_ids
+
+
 def main() -> None:
     """Main test sync function."""
     logger.info("Starting Strava test sync...")
+
+    # Parse command-line arguments
+    activity_ids = parse_arguments()
+    logger.info(f"Processing {len(activity_ids)} activity(ies)...")
 
     # Load configuration
     try:
@@ -161,33 +196,80 @@ def main() -> None:
         logger.error(f"Failed to refresh token: {e}")
         sys.exit(1)
 
-    # Fetch activity
-    try:
-        activity = get_activity(access_token, config["STRAVA_ACTIVITY_ID"])
-    except Exception as e:
-        logger.error(f"Failed to fetch activity: {e}")
+    # Track results
+    successful = []
+    failed = {}
+
+    # Process each activity
+    for activity_id in activity_ids:
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Processing activity {activity_id}...")
+        logger.info(f"{'='*60}")
+
+        try:
+            # Fetch activity
+            activity = get_activity(access_token, activity_id)
+
+            # Format markdown
+            markdown = format_activity_markdown(activity)
+
+            # Get file path
+            file_path = get_activity_file_path(activity, repo_path)
+
+            # Save activity file
+            relative_path = save_activity_file(markdown, file_path, repo_path)
+            logger.info(f"Activity saved to {relative_path}")
+
+            # Create commit with activity date
+            create_commit_with_date(
+                repo_path,
+                relative_path,
+                activity,
+                config["GIT_NAME"],
+                config["GIT_EMAIL"],
+            )
+
+            logger.info(f"✓ Activity {activity_id} synced successfully!")
+            successful.append(activity_id)
+
+        except requests.HTTPError as e:
+            error_msg = f"HTTP {e.response.status_code}"
+            if e.response.status_code == 404:
+                error_msg = "Not found (404)"
+            elif e.response.status_code == 401:
+                error_msg = "Unauthorized (401)"
+            elif e.response.status_code == 403:
+                error_msg = "Forbidden (403)"
+
+            logger.error(f"✗ Activity {activity_id} failed: {error_msg}")
+            failed[activity_id] = error_msg
+
+        except Exception as e:
+            logger.error(f"✗ Activity {activity_id} failed: {str(e)}")
+            failed[activity_id] = str(e)
+
+    # Print summary
+    logger.info(f"\n{'='*60}")
+    logger.info("SUMMARY")
+    logger.info(f"{'='*60}")
+    logger.info(f"✓ Successfully synced: {len(successful)} activity(ies)")
+
+    if successful:
+        for activity_id in successful:
+            logger.info(f"  - {activity_id}")
+
+    if failed:
+        logger.info(f"✗ Failed: {len(failed)} activity(ies)")
+        for activity_id, error in failed.items():
+            logger.info(f"  - {activity_id}: {error}")
+
+    logger.info(f"{'='*60}\n")
+
+    # Exit with error code if any failed
+    if failed:
         sys.exit(1)
-
-    # Format markdown
-    markdown = format_activity_markdown(activity)
-
-    # Get file path
-    file_path = get_activity_file_path(activity, repo_path)
-
-    # Save activity file
-    relative_path = save_activity_file(markdown, file_path, repo_path)
-    logger.info(f"Activity saved to {relative_path}")
-
-    # Create commit with activity date
-    create_commit_with_date(
-        repo_path,
-        relative_path,
-        activity,
-        config["GIT_NAME"],
-        config["GIT_EMAIL"],
-    )
-
-    logger.info("✓ Sync completed successfully!")
+    else:
+        logger.info("All activities synced successfully!")
 
 
 if __name__ == "__main__":
